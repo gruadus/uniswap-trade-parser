@@ -1,0 +1,7 @@
+pandas>=1.2.4
+backoff>=1.10.0
+gql==3.0.0a5
+rich>=10.1.0
+yarl>=1.6.3
+aiohttp>=3.7.4.post0
+setuptools>=56.0.0
