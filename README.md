@@ -9,8 +9,8 @@ large when parsing large periods of time.
 0. Clone repository
 
 ```bash
-git clone https://github.com/thegismar/farmtrades
-cd farmtrades
+https://github.com/thegismar/uniswap-trade-parser
+cd uniswap-trade-parser
 ```
 
 
