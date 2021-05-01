@@ -2,7 +2,6 @@ from typing import List
 import pandas as pd
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
-from gql.transport import exceptions
 from dataclasses import dataclass
 import time
 import datetime
@@ -14,11 +13,11 @@ import sys
 transport = AIOHTTPTransport(url="https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2")
 client = Client(transport=transport, fetch_schema_from_transport=True)
 
-SECONDS_IN_DAY = 60 * 60 * 24
-TIME_BUFFER = 5  # wait in seconds between calls to the graph api
-FARM_TOKEN = '0xa0246c9032bc3a600820415ae600c6388619a14d'
-
 s = Status('')
+
+SECONDS_IN_DAY = 60 * 60 * 24
+TIME_BUFFER = 0  # wait in seconds between calls to the graph api
+FARM_TOKEN = '0xa0246c9032bc3a600820415ae600c6388619a14d'
 
 
 @dataclass()
@@ -55,7 +54,11 @@ def grapherr(err):
 
 
 # this will retry when thegraph is lagging and calls grapherr
-@backoff.on_exception(backoff.expo, exceptions.TransportError, max_time=300, on_backoff=grapherr)
+@backoff.on_exception(backoff.expo, Exception, max_time=300)
+def graph(query, params):
+    return client.execute(query, variable_values=params)
+
+
 def get_pairs(token):
     query = gql(
         """
@@ -85,12 +88,10 @@ def get_pairs(token):
     )
     time.sleep(2)
     params = {'tkn': token}
-    result = client.execute(query, variable_values=params)
+    result = graph(query, params)
     return result['pairs']
 
 
-# this will retry when thegraph is lagging and calls grapherr
-@backoff.on_exception(backoff.expo, exceptions.TransportError, max_time=300, on_backoff=grapherr)
 def get_swaps(start_, token_):
     query = gql(
         """
@@ -148,11 +149,11 @@ def get_swaps(start_, token_):
             # breaks either when the timestamp of the last trade is equal to when the script was run (not likely)
             # or when the resulting list of swaps is 0
             while ts < now:
-                time.sleep(TIME_BUFFER)
                 params = {'pair': p['id'], 'ts': ts}
-                result = client.execute(query, variable_values=params)
+                result = graph(query, params)
                 if len(result['swaps']) == 0:
                     break
+                time.sleep(TIME_BUFFER)
                 # create a single row
                 for r in result['swaps']:
                     ds = Dataset(
@@ -189,18 +190,25 @@ def get_swaps(start_, token_):
 
 
 if __name__ == '__main__':
+    from rich.console import Console
 
-    token = FARM_TOKEN
+    console = Console()
 
     try:
         length_history = int(sys.argv[1]) if len(sys.argv) > 1 else 7
     except ValueError:
-        print('Error: argument for number of days must be integer')
+        print('Argument must be given as integer.')
         sys.exit()
 
-    start_timestamp = int(time.time()) - length_history * SECONDS_IN_DAY
+    start_time = int(time.time()) - length_history * SECONDS_IN_DAY
 
-    dl = get_swaps(start_timestamp, token)
+    dl = get_swaps(start_time, FARM_TOKEN)
     df = pd.DataFrame(e for e in dl.elements)
     df.sort_values(by='block', ascending=True, inplace=True, ignore_index=True)
-    df.to_csv('data.csv')
+
+    count = len(df.index)
+    mean_price = df.price.mean()
+    mean_amount = df.amount.mean()
+    console.print(
+        f'In the last {length_history} days, there were {count} swaps involving FARM, with mean price of '
+        f'{mean_price:,.2f} USD/FARM and of a mean amount of {mean_amount:.2f} FARM.')
