@@ -39,7 +39,7 @@ python3 main.py [DAYS]
 ```
 
 - DAYS, given as int is an optional parameter to fetch the trades  since a certain number of days, 
-default is 30
+default is 7
 
 ## Issues
 
