@@ -89,7 +89,7 @@ def get_pairs(token):
     return result['pairs']
 
 
-def get_swaps(start_, token_):
+def get_swaps(start_, token_, time_buffer_):
     query = gql(
         """
             query getSwaps($pair: String, $ts: BigInt)
@@ -152,7 +152,7 @@ def get_swaps(start_, token_):
                 result = graph(query, params)
                 if len(result['swaps']) == 0:
                     break
-                time.sleep(time_buffer)
+                time.sleep(time_buffer_)
                 # create a single row
                 for r in result['swaps']:
                     ds = Dataset(
@@ -209,7 +209,7 @@ if __name__ == '__main__':
 
     start_time = int(time.time()) - length_history * SECONDS_IN_DAY
 
-    dl = get_swaps(start_time, token)
+    dl = get_swaps(start_time, token, time_buffer)
     df = pd.DataFrame(e for e in dl.elements)
     df.sort_values(by='block', ascending=True, inplace=True, ignore_index=True)
 
