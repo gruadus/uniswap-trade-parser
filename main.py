@@ -184,7 +184,7 @@ if __name__ == '__main__':
     token = FARM_TOKEN
 
     # @todo checks on supplied argument
-    length_history = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+    length_history = int(sys.argv[1]) if len(sys.argv) > 1 else 7
 
     start_timestamp = int(time.time()) - length_history * SECONDS_IN_DAY
 
