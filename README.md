@@ -32,6 +32,12 @@ source venv/bin/activate
 pip3 install -r requirements.txt
 ```
 
+3. Run tests
+
+ ```bash
+pytest test.py
+```
+
 3. Run script
 
 ```bash
@@ -43,8 +49,8 @@ default is 7
 
 ## Issues
 
-- When looking up historic trades for a large period the connection to thegraph sometimes gives out, current 
-  implementation shows a brief message and then **starts the entire process over**, which needs to be addressed
+~~- When looking up historic trades for a large period the connection to thegraph sometimes gives out, current 
+  implementation shows a brief message and then **starts the entire process over**, which needs to be addressed~~
   
   
 - When the swap isn't done by an EOA (ie path goes through multiple pairs, or is done by another dex), owner is set  to the dex and not the buyer/seller  
@@ -53,4 +59,4 @@ default is 7
 
 - Store information in DB instead of .csv
 
-- Test cases
+~~- Test cases~~
