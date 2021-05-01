@@ -47,7 +47,7 @@ default is 30
   implementation shows a brief message and then **starts the entire process over**, which needs to be addressed
   
   
-- Trader in some cases is the uniswap router, this needs to be addressed
+- When the swap isn't done by an EOA (ie path goes through multiple pairs, or is done by another dex), owner is set  to the dex and not the buyer/seller  
 
 ## ToDo
 

@@ -160,9 +160,8 @@ def get_swaps(start_, token_):
                         r['transaction']['id'],  # hash
                         r['transaction']['blockNumber'],  # block
                         str(datetime.datetime.fromtimestamp(int(r['timestamp']))),  # date,
-                        # @todo should never be the uniswap router
                         r['to'],  # owner
-                        'buy' if float(r['amount0In']) > 0 else 'sell',  # trade
+                        'buy' if float(r['amount0Out']) > 0 else 'sell',  # trade
                         p['token0']['name'],  # coin0 name
                         p['token0']['id'],  # coin0 addy
                         float(r['amount0In']) + float(r['amount0Out']),  # amount1 (either in(buy) or out(sell)
