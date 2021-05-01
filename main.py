@@ -7,7 +7,6 @@ import time
 import datetime
 from rich.status import Status
 import backoff
-import sys
 
 # init gql
 transport = AIOHTTPTransport(url="https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2")
@@ -16,8 +15,6 @@ client = Client(transport=transport, fetch_schema_from_transport=True)
 s = Status('')
 
 SECONDS_IN_DAY = 60 * 60 * 24
-TIME_BUFFER = 0  # wait in seconds between calls to the graph api
-FARM_TOKEN = '0xa0246c9032bc3a600820415ae600c6388619a14d'
 
 
 @dataclass()
@@ -133,15 +130,17 @@ def get_swaps(start_, token_):
 
     # progress indicator
     s.update(init + pair + work)
-    s.console.print('Starting hard work..')
     with s:
         s.console.print('Getting pairs..')
 
         # get the most liquid pairs
         pairs = get_pairs(token_)
-        s.console.print(f'Pulled pairs: {pairs[0]["id"]}, {pairs[1]["id"]}... ')
-
+        pair_string = ''
+        for i in range(len(pairs) - 1):
+            pair_string += f"{pairs[i]['id']} "
+        s.console.print(f'Pulled pairs: {pair_string}... ')
         for p in pairs:
+
             s.console.print(f'Parsing pair {p["id"]}...')
             s.update(init)
             ts = start_
@@ -153,7 +152,7 @@ def get_swaps(start_, token_):
                 result = graph(query, params)
                 if len(result['swaps']) == 0:
                     break
-                time.sleep(TIME_BUFFER)
+                time.sleep(time_buffer)
                 # create a single row
                 for r in result['swaps']:
                     ds = Dataset(
@@ -191,24 +190,36 @@ def get_swaps(start_, token_):
 
 if __name__ == '__main__':
     from rich.console import Console
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description='''Simple script that looks up uniswap trades for a given token and dumps relevant data into a
+                        .csv file''')
+    parser.add_argument('-l', '--length', type=int, default=7, help='Historic lookup for trades in days.')
+    parser.add_argument('-t', '--token', type=str, default='0xa0246c9032bc3a600820415ae600c6388619a14d',
+                        help='Token address.')
+    parser.add_argument('-b', '--buffer', type=int, default=0, help='Buffer between queries.')
+    args = parser.parse_args()
+
+    token = args.token
+    length_history = args.length
+    time_buffer = args.buffer
 
     console = Console()
 
-    try:
-        length_history = int(sys.argv[1]) if len(sys.argv) > 1 else 7
-    except ValueError:
-        print('Argument must be given as integer.')
-        sys.exit()
-
     start_time = int(time.time()) - length_history * SECONDS_IN_DAY
 
-    dl = get_swaps(start_time, FARM_TOKEN)
+    dl = get_swaps(start_time, token)
     df = pd.DataFrame(e for e in dl.elements)
     df.sort_values(by='block', ascending=True, inplace=True, ignore_index=True)
+
+    token_name = dl.elements[0].coin_name
+
+    df.to_csv('data.csv')
 
     count = len(df.index)
     mean_price = df.price.mean()
     mean_amount = df.amount.mean()
     console.print(
-        f'In the last {length_history} days, there were {count} swaps involving FARM, with mean price of '
-        f'{mean_price:,.2f} USD/FARM and of a mean amount of {mean_amount:.2f} FARM.')
+        f'In the last {length_history} days, there were {count} swaps involving {token_name}, with mean price of '
+        f'{mean_price:,.2f} USD/{token_name} and of a mean amount of {mean_amount:.2f} {token_name}.')

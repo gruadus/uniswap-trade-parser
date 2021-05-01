@@ -1,7 +1,9 @@
-# FARM Uniswap trades parser
+# Uniswap trades parser
 
-Looks up the most liquid pools for FARM REWARDS Token and gets all the swaps within a given time period and prints out a .csv files containing relevant information.
+Looks up the most liquid pools for a specified token and gets all the swaps within a given time period and prints out a .csv files containing relevant information.
 
+**Warning:** this script is not optimized for speed and the resulting .csv files can be very
+large when parsing large periods of time. 
 ## Installing
 
 0. Clone repository
@@ -41,11 +43,17 @@ pytest test.py
 3. Run script
 
 ```bash
-python3 main.py [DAYS]
+python3 main.py [-h] [-l LENGTH] [-t TOKEN] [-b BUFFER]
 ```
-
-- DAYS, given as int is an optional parameter to fetch the trades  since a certain number of days, 
-default is 7
+```
+  -h, --help            show this help message and exit
+  -l LENGTH, --length LENGTH
+                        Historic lookup for trades in days.
+  -t TOKEN, --token TOKEN
+                        Token address.
+  -b BUFFER, --buffer BUFFER
+                        Buffer between queries.
+```
 
 ## Issues
 
