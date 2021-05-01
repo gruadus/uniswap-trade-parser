@@ -2,6 +2,7 @@ from typing import List
 import pandas as pd
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
+from gql.transport import exceptions
 from dataclasses import dataclass
 import time
 import datetime
@@ -18,6 +19,7 @@ TIME_BUFFER = 5  # wait in seconds between calls to the graph api
 FARM_TOKEN = '0xa0246c9032bc3a600820415ae600c6388619a14d'
 
 s = Status('')
+
 
 @dataclass()
 class Dataset:
@@ -53,7 +55,7 @@ def grapherr(err):
 
 
 # this will retry when thegraph is lagging and calls grapherr
-@backoff.on_exception(backoff.expo, Exception, max_time=300, on_backoff=grapherr)
+@backoff.on_exception(backoff.expo, exceptions.TransportError, max_time=300, on_backoff=grapherr)
 def get_pairs(token):
     query = gql(
         """
@@ -88,7 +90,7 @@ def get_pairs(token):
 
 
 # this will retry when thegraph is lagging and calls grapherr
-@backoff.on_exception(backoff.expo, Exception, max_time=300, on_backoff=grapherr)
+@backoff.on_exception(backoff.expo, exceptions.TransportError, max_time=300, on_backoff=grapherr)
 def get_swaps(start_, token_):
     query = gql(
         """
@@ -127,16 +129,24 @@ def get_swaps(start_, token_):
     pair = ''
     work = ''
     now = int(time.time())
+
+    # progress indicator
     s.update(init + pair + work)
     s.console.print('Starting hard work..')
     with s:
         s.console.print('Getting pairs..')
+
+        # get the most liquid pairs
         pairs = get_pairs(token_)
         s.console.print(f'Pulled pairs: {pairs[0]["id"]}, {pairs[1]["id"]}... ')
+
         for p in pairs:
             s.console.print(f'Parsing pair {p["id"]}...')
             s.update(init)
             ts = start_
+
+            # breaks either when the timestamp of the last trade is equal to when the script was run (not likely)
+            # or when the resulting list of swaps is 0
             while ts < now:
                 time.sleep(TIME_BUFFER)
                 params = {'pair': p['id'], 'ts': ts}
@@ -150,7 +160,8 @@ def get_swaps(start_, token_):
                         r['transaction']['id'],  # hash
                         r['transaction']['blockNumber'],  # block
                         str(datetime.datetime.fromtimestamp(int(r['timestamp']))),  # date,
-                        r['to'],  # @todo should never be the uniswap router
+                        # @todo should never be the uniswap router
+                        r['to'],  # owner
                         'buy' if float(r['amount0In']) > 0 else 'sell',  # trade
                         p['token0']['name'],  # coin0 name
                         p['token0']['id'],  # coin0 addy
@@ -168,7 +179,6 @@ def get_swaps(start_, token_):
 
                     # add the row to the list and update the timestamp
                     data_list.elements.append(ds)
-                    # update new minimum timestamp from which to run query
                     ts = int(r['timestamp'])
 
                     # progress indicator
@@ -183,8 +193,11 @@ if __name__ == '__main__':
 
     token = FARM_TOKEN
 
-    # @todo checks on supplied argument
-    length_history = int(sys.argv[1]) if len(sys.argv) > 1 else 7
+    try:
+        length_history = int(sys.argv[1]) if len(sys.argv) > 1 else 7
+    except ValueError:
+        print('Error: argument for number of days must be integer')
+        sys.exit()
 
     start_timestamp = int(time.time()) - length_history * SECONDS_IN_DAY
 

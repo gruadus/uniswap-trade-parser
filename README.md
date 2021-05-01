@@ -48,3 +48,9 @@ default is 30
   
   
 - Trader in some cases is the uniswap router, this needs to be addressed
+
+## ToDo
+
+- Store information in DB instead of .csv
+
+- Test cases
