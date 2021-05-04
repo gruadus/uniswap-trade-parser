@@ -7,6 +7,20 @@ import time
 import datetime
 from rich.status import Status
 import backoff
+import sys
+import warnings
+from brownie import *
+from dotenv import load_dotenv
+import os
+
+# not showing warnings, brownie has the tendency to be picky
+warnings.simplefilter('ignore')
+
+load_dotenv()
+network_name = os.getenv('BROWNIE_NETWORK_NAME')
+
+if not network.is_connected():
+    network.connect(network_name)
 
 # init gql
 transport = AIOHTTPTransport(url="https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2")
@@ -32,6 +46,8 @@ class Dataset:
     other_coin_address: str
     other_amount: float
     price: float
+    multiplier: float
+    finalprice: float
     lp_name: str
     lp_address: str
 
@@ -39,10 +55,6 @@ class Dataset:
 @dataclass()
 class Data:
     elements: List[Dataset]
-
-
-# init data_list with empty element
-data_list = Data(elements=[])
 
 
 def grapherr(err):
@@ -89,7 +101,25 @@ def get_pairs(token):
     return result['pairs']
 
 
-def get_swaps(start_, token_, time_buffer_):
+def get_token_price(block, contract, dec1, dec2, ifarm):
+    reserves = contract.getReserves(block_identifier=block)
+
+    if ifarm:
+        ppfs = ifarm.getPricePerFullShare(block_identifier=block) / 1e18
+    else:
+        ppfs = 1
+
+    price = float(((reserves[1]) / 10 ** dec2) / (reserves[0] / 10 ** dec1))
+
+    return price, ppfs, price * ppfs
+
+
+def get_swaps(start_, token_, time_buffer_, ifarm=None):
+    if ifarm:
+        ifarm = Contract.from_explorer(ifarm)
+
+    # init data_list with empty element
+    data_list = Data(elements=[])
     query = gql(
         """
             query getSwaps($pair: String, $ts: BigInt)
@@ -104,6 +134,12 @@ def get_swaps(start_, token_, time_buffer_):
                 {
                     id
                     blockNumber
+                }
+                
+                pair
+                {
+                token0Price
+                token1Price
                 }
                 
                 to 
@@ -135,6 +171,10 @@ def get_swaps(start_, token_, time_buffer_):
 
         # get the most liquid pairs
         pairs = get_pairs(token_)
+        if len(pairs) == 0:
+            console.print(f'[red] Did not find any trades for the given time period. Exiting..')
+            sys.exit()
+
         pair_string = ''
         for i in range(len(pairs) - 1):
             pair_string += f"{pairs[i]['id']} "
@@ -144,20 +184,30 @@ def get_swaps(start_, token_, time_buffer_):
             s.console.print(f'Parsing pair {p["id"]}...')
             s.update(init)
             ts = start_
+            contract = Contract.from_explorer(p['id'])
+
+            token0 = Contract.from_explorer(contract.token0())
+            token1 = Contract.from_explorer(contract.token1())
+
+            # needed to correctly calculate the price
+            dec_t0 = token0.decimals()
+            dec_t1 = token1.decimals()
 
             # breaks either when the timestamp of the last trade is equal to when the script was run (not likely)
             # or when the resulting list of swaps is 0
+
             while ts < now:
-                params = {'pair': p['id'], 'ts': ts}
+                params = {'pair': p['id'], 'ts': ts}  # for the graphql query, the pair id and the timestamp
                 result = graph(query, params)
                 if len(result['swaps']) == 0:
                     break
                 time.sleep(time_buffer_)
                 # create a single row
                 for r in result['swaps']:
+                    price_data = get_token_price(int(r['transaction']['blockNumber']), contract, dec_t0, dec_t1, ifarm)
                     ds = Dataset(
                         r['id'],  # id
-                        r['transaction']['id'],  # hash
+                        r['transaction']['id'],  # transaction hash
                         r['transaction']['blockNumber'],  # block
                         str(datetime.datetime.fromtimestamp(int(r['timestamp']))),  # date,
                         r['to'],  # owner
@@ -168,12 +218,10 @@ def get_swaps(start_, token_, time_buffer_):
                         p['token1']['name'],  # coin1 name
                         p['token1']['id'],  # coin1 addy
                         float(r['amount1In']) + float(r['amount1Out']),  # other amounts (either sell/buy)
-
-                        # price, amount in dollar divided by the qty of token that were given or taken,
-                        # ie that were sold(given) or taken(bought). uniswap gives the USD value
-
-                        float(r['amountUSD']) / ((float(r['amount0In'])) + float(r['amount0Out'])),
-                        f"{p['token0']['name']} / {p['token1']['name']}",  # name of pool
+                        price_data[0],  # price w ithout ppfs
+                        price_data[1],  # ppfs
+                        price_data[2],  # price times ppfs
+                        f"{'i' if ifarm else ''}{p['token0']['name']} / {p['token1']['name']}",  # name of pool
                         p['id'])  # id of pool/pair
 
                     # add the row to the list and update the timestamp
@@ -196,8 +244,11 @@ if __name__ == '__main__':
         description='''Simple script that looks up uniswap trades for a given token and dumps relevant data into a
                         .csv file''')
     parser.add_argument('-l', '--length', type=int, default=7, help='Historic lookup for trades in days.')
+
     parser.add_argument('-t', '--token', type=str, default='0xa0246c9032bc3a600820415ae600c6388619a14d',
                         help='Token address.')
+    parser.add_argument('-i', '--ifarm', type=bool, default=False,
+                        help='Custom flag for calculating iFARM reward price')
     parser.add_argument('-b', '--buffer', type=int, default=0, help='Buffer between queries.')
     args = parser.parse_args()
 
@@ -209,17 +260,17 @@ if __name__ == '__main__':
 
     start_time = int(time.time()) - length_history * SECONDS_IN_DAY
 
-    dl = get_swaps(start_time, token, time_buffer)
+    if args.ifarm:
+        ifarm_contract = '0x1571eD0bed4D987fe2b498DdBaE7DFA19519F651'
+    else:
+        ifarm_contract = None
+
+    dl = get_swaps(start_time, token, time_buffer, ifarm_contract)
+
     df = pd.DataFrame(e for e in dl.elements)
     df.sort_values(by='block', ascending=True, inplace=True, ignore_index=True)
 
     token_name = dl.elements[0].coin_name
 
     df.to_csv('data.csv')
-
-    count = len(df.index)
-    mean_price = df.price.mean()
-    mean_amount = df.amount.mean()
-    console.print(
-        f'In the last {length_history} days, there were {count} swaps involving {token_name}, with mean price of '
-        f'{mean_price:,.2f} USD/{token_name} and of a mean amount of {mean_amount:.2f} {token_name}.')
+    console.rule(f'[green][bold] Done')
